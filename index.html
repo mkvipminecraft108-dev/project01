@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Mini Vampire Survivors</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<style>
+body{margin:0;overflow:hidden;background:#111;font-family:sans-serif}
+canvas{display:block;margin:auto;background:#eee}
+
+/* UI */
+.screen{
+  position:fixed; inset:0;
+  display:flex; flex-direction:column;
+  justify-content:center; align-items:center;
+  background:rgba(0,0,0,.7); color:#fff;
+  z-index:10;
+}
+button{padding:12px 30px;font-size:20px;border:none;border-radius:8px}
+#hud{position:fixed;top:10px;left:10px;color:#000;font-size:18px}
+
+/* JOYSTICK */
+#joystick{
+  position:fixed;left:20px;bottom:20px;
+  width:120px;height:120px;border-radius:50%;
+  background:rgba(0,0,0,.2)
+}
+#stick{
+  position:absolute;left:40px;top:40px;
+  width:40px;height:40px;border-radius:50%;
+  background:#2196f3
+}
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+<div id="hud"></div>
+
+<div id="menu" class="screen">
+  <h1>Mini Vampire Survivors</h1>
+  <button onclick="startGame()">START</button>
+</div>
+
+<div id="gameover" class="screen" style="display:none">
+  <h1>GAME OVER</h1>
+  <p id="finalScore"></p>
+  <button onclick="startGame()">RESTART</button>
+</div>
+
+<div id="joystick"><div id="stick"></div></div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+canvas.width=innerWidth;
+canvas.height=innerHeight;
+
+/* MAP */
+const MAP_W=2000, MAP_H=2000;
+
+/* GAME STATE */
+let state="menu", score=0;
+let high=localStorage.getItem("high")||0;
+
+/* PLAYER */
+const player={
+  x:MAP_W/2, y:MAP_H/2,
+  r:18, speed:3,
+  hp:100, maxHp:100
+};
+
+let bullets=[], enemies=[], enemyBullets=[];
+let joy={x:0,y:0};
+
+/* JOYSTICK */
+const joystick=document.getElementById("joystick");
+const stick=document.getElementById("stick");
+joystick.addEventListener("touchmove",e=>{
+  const r=joystick.getBoundingClientRect();
+  let dx=e.touches[0].clientX-(r.left+60);
+  let dy=e.touches[0].clientY-(r.top+60);
+  const l=Math.hypot(dx,dy);
+  if(l>40){dx*=40/l;dy*=40/l;}
+  stick.style.left=40+dx+"px";
+  stick.style.top=40+dy+"px";
+  joy.x=dx/40; joy.y=dy/40;
+});
+joystick.addEventListener("touchend",()=>{
+  stick.style.left="40px";stick.style.top="40px";
+  joy.x=joy.y=0;
+});
+
+/* START */
+function startGame(){
+  state="play";
+  score=0;
+  player.x=MAP_W/2; player.y=MAP_H/2; player.hp=100;
+  bullets=[]; enemies=[]; enemyBullets=[];
+  menu.style.display="none";
+  gameover.style.display="none";
+}
+
+/* SPAWN ENEMY */
+setInterval(()=>{
+  if(state!=="play")return;
+  const a=Math.random()*Math.PI*2;
+  enemies.push({
+    x:player.x+Math.cos(a)*400,
+    y:player.y+Math.sin(a)*400,
+    r:16,hp:40,maxHp:40,cd:60
+  });
+},1500);
+
+/* AUTO FIRE */
+setInterval(()=>{
+  if(state!=="play"||!enemies.length)return;
+  const e=enemies[0];
+  const a=Math.atan2(e.y-player.y,e.x-player.x);
+  bullets.push({x:player.x,y:player.y,vx:Math.cos(a)*6,vy:Math.sin(a)*6});
+},300);
+
+/* SCORE TIME */
+setInterval(()=>{ if(state==="play")score++; },1000);
+
+/* LOOP */
+function loop(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(state!=="play"){requestAnimationFrame(loop);return;}
+
+  /* MOVE PLAYER */
+  player.x+=joy.x*player.speed;
+  player.y+=joy.y*player.speed;
+
+  /* MAP LIMIT */
+  player.x=Math.max(player.r,Math.min(MAP_W-player.r,player.x));
+  player.y=Math.max(player.r,Math.min(MAP_H-player.r,player.y));
+
+  /* CAMERA */
+  const camX=player.x-canvas.width/2;
+  const camY=player.y-canvas.height/2;
+
+  /* DRAW MAP BORDER */
+  ctx.strokeStyle="#444";
+  ctx.strokeRect(-camX,-camY,MAP_W,MAP_H);
+
+  /* PLAYER */
+  ctx.fillStyle="#2196f3";
+  ctx.beginPath();
+  ctx.arc(player.x-camX,player.y-camY,player.r,0,Math.PI*2);
+  ctx.fill();
+
+  // player HP
+  ctx.fillStyle="red";
+  ctx.fillRect(player.x-camX-20,player.y-camY-30,40,5);
+  ctx.fillStyle="lime";
+  ctx.fillRect(player.x-camX-20,player.y-camY-30,40*(player.hp/player.maxHp),5);
+
+  /* BULLETS */
+  bullets.forEach(b=>{
+    b.x+=b.vx; b.y+=b.vy;
+    ctx.fillStyle="#000";
+    ctx.beginPath();
+    ctx.arc(b.x-camX,b.y-camY,4,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  /* ENEMIES */
+  enemies.forEach((e,ei)=>{
+    const a=Math.atan2(player.y-e.y,player.x-e.x);
+    e.x+=Math.cos(a)*1.2;
+    e.y+=Math.sin(a)*1.2;
+
+    e.cd--;
+    if(e.cd<=0){
+      e.cd=120;
+      enemyBullets.push({x:e.x,y:e.y,vx:Math.cos(a)*4,vy:Math.sin(a)*4});
+    }
+
+    ctx.fillStyle="red";
+    ctx.beginPath();
+    ctx.arc(e.x-camX,e.y-camY,e.r,0,Math.PI*2);
+    ctx.fill();
+
+    // enemy HP
+    ctx.fillStyle="black";
+    ctx.fillRect(e.x-camX-15,e.y-camY-25,30,4);
+    ctx.fillStyle="lime";
+    ctx.fillRect(e.x-camX-15,e.y-camY-25,30*(e.hp/e.maxHp),4);
+
+    bullets.forEach((b,bi)=>{
+      if(Math.hypot(b.x-e.x,b.y-e.y)<e.r){
+        e.hp-=10;
+        bullets.splice(bi,1);
+      }
+    });
+    if(e.hp<=0){
+      enemies.splice(ei,1);
+      score+=10;
+    }
+  });
+
+  /* ENEMY BULLETS */
+  enemyBullets.forEach((b,bi)=>{
+    b.x+=b.vx; b.y+=b.vy;
+    ctx.fillStyle="orange";
+    ctx.beginPath();
+    ctx.arc(b.x-camX,b.y-camY,4,0,Math.PI*2);
+    ctx.fill();
+    if(Math.hypot(b.x-player.x,b.y-player.y)<player.r){
+      player.hp-=5;
+      enemyBullets.splice(bi,1);
+    }
+  });
+
+  /* HUD */
+  hud.innerHTML=`Score: ${score}<br>High: ${high}`;
+
+  if(player.hp<=0){
+    state="over";
+    if(score>high){high=score;localStorage.setItem("high",high);}
+    finalScore.innerText="Score: "+score;
+    gameover.style.display="flex";
+  }
+
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
